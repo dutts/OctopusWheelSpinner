@@ -1,0 +1,22 @@
+services:
+  octopus-wheel-spinner:
+    container_name: octopus-wheel-spinner
+    image: octopus-wheel-spinner
+    build:
+      context: .
+      dockerfile: OctopusWheelSpinner/Dockerfile
+    env_file:
+      - OctopusWheelSpinner/.env
+    environment:
+      DB_PATH: /data/spins.db
+    volumes:
+      - ./data:/data
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent --show-error http://localhost:$${HEALTH_PORT:-8080}/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+    restart: unless-stopped

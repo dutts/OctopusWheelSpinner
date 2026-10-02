@@ -6,6 +6,8 @@ using Serilog;
 using Serilog.Events;
 using Serilog.Formatting.Compact;
 
+var healthPort = int.Parse(Environment.GetEnvironmentVariable("HEALTH_PORT") ?? "8080");
+
 // LOG_FORMAT=json emits compact JSON (one structured event per line); anything else is human-readable
 var json = string.Equals(Environment.GetEnvironmentVariable("LOG_FORMAT"), "json", StringComparison.OrdinalIgnoreCase);
 var logConfig = new LoggerConfiguration()
@@ -54,6 +56,7 @@ try
             // If the app was down at the scheduled time, run once on startup rather than skipping the month
             .WithCronSchedule(cron, x => x.WithMisfireInstruction(CronTriggerMisfireInstruction.FireAndProceed)));
     });
+    builder.Services.AddHostedService(sp => ActivatorUtilities.CreateInstance<ApiServer>(sp, healthPort));
     builder.Services.AddQuartzHostedService(q => q.WaitForJobsToComplete = true);
 
     await builder.Build().RunAsync();

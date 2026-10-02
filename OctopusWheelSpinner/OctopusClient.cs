@@ -13,6 +13,8 @@ public sealed class OctopusClient(HttpClient http, OctopusOptions options)
     private const string TokenUrl = "https://api.octopus.energy/v1/graphql/";
     private const string BackendUrl = "https://api.backend.octopus.energy/v1/graphql/";
 
+    private static readonly string[] HealthUrls = [TokenUrl, BackendUrl];
+
     private string? _token;
     private DateTimeOffset _tokenExpiry;
 
@@ -38,6 +40,32 @@ public sealed class OctopusClient(HttpClient http, OctopusOptions options)
         {
             return new SpinResult(false, null, ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Connectivity probe only: sends an unauthenticated <c>{ __typename }</c> query to each endpoint.
+    /// Uses no credentials and has no side effects.
+    /// </summary>
+    public async Task<string?> CheckConnectivityAsync(CancellationToken ct)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+
+        var checks = HealthUrls.Select(async url =>
+        {
+            try
+            {
+                using var response = await http.PostAsJsonAsync(url, new { query = "{ __typename }" }, timeout.Token);
+                return response.IsSuccessStatusCode ? null : $"{new Uri(url).Host}: HTTP {(int)response.StatusCode}";
+            }
+            catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
+            {
+                return $"{new Uri(url).Host}: {ex.GetType().Name}";
+            }
+        });
+
+        var failures = (await Task.WhenAll(checks)).Where(f => f is not null);
+        return failures.Any() ? string.Join("; ", failures) : null;
     }
 
     private async Task EnsureTokenAsync(CancellationToken ct)

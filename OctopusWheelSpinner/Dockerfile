@@ -1,4 +1,8 @@
 ﻿FROM mcr.microsoft.com/dotnet/runtime:10.0 AS base
+# curl is used by the HEALTHCHECK
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
 USER $APP_UID
 WORKDIR /app
 
@@ -18,4 +22,7 @@ RUN dotnet publish "./OctopusWheelSpinner.csproj" -c $BUILD_CONFIGURATION -o /ap
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+  CMD curl --fail --silent --show-error http://localhost:${HEALTH_PORT:-8080}/health || exit 1
 ENTRYPOINT ["dotnet", "OctopusWheelSpinner.dll"]
