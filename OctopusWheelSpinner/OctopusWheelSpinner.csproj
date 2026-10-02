@@ -19,6 +19,9 @@
       <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
       <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.12" />
       <PackageReference Include="Quartz.Extensions.Hosting" Version="4.3.0" />
+      <PackageReference Include="Serilog.Extensions.Hosting" Version="10.0.0" />
+      <PackageReference Include="Serilog.Formatting.Compact" Version="3.0.0" />
+      <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
     </ItemGroup>
 
 </Project>

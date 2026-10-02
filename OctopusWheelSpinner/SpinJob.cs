@@ -15,17 +15,17 @@ public sealed class SpinJob(
         foreach (var fuel in Enum.GetValues<FuelType>())
         {
             var allowed = await client.GetSpinsAllowedAsync(fuel, ct);
-            logger.LogInformation("{Fuel}: {Allowed} spin(s) available", fuel, allowed);
+            logger.LogInformation("Spins available for {Fuel}: {SpinsAllowed}", fuel, allowed);
 
             for (var i = 0; i < allowed; i++)
             {
                 var result = await client.SpinAsync(fuel, ct);
                 store.Record(options.AccountNumber, fuel, result);
 
-                if (result.Success) logger.LogInformation("{Fuel}: won {Points} points", fuel, result.Points);
+                if (result.Success) logger.LogInformation("Spin won for {Fuel}: {PointsWon} points", fuel, result.Points);
                 else
                 {
-                    logger.LogWarning("{Fuel}: spin failed: {Error}", fuel, result.Error);
+                    logger.LogWarning("Spin failed for {Fuel}: {Error}", fuel, result.Error);
                     break;
                 }
             }
