@@ -73,9 +73,25 @@ Build only:
 dotnet build
 ```
 
-## Run with Docker Compose
+## Run the published Docker image
 
-Create `OctopusWheelSpinner/.env` (it is git-ignored). Use plain `KEY=value` lines with no quotes and no `export`:
+A multi-architecture image (`linux/amd64` and `linux/arm64`) is built by GitHub Actions and published to the GitHub
+Container Registry on every push to `main`:
+
+```
+ghcr.io/dutts/octopuswheelspinner:latest
+```
+
+| Tag | Description |
+| --- | --- |
+| `latest` | The most recent build of `main` |
+| `<major>.<minor>.<patch>` | A specific version, e.g. `1.2.3`, to pin to |
+| `sha-<commit>` | A specific commit |
+
+Pin to a version tag rather than `latest` if you want to control when you upgrade.
+
+Create a `.env` file next to where you will run the container. Use plain `KEY=value` lines with no quotes and no
+`export`:
 
 ```
 OCTOPUS_API_KEY=your-api-key
@@ -83,7 +99,66 @@ OCTOPUS_ACCOUNT_NUMBER=A-1234ABCD
 SPIN_CRON=0 0 9 1 * ?
 ```
 
-Then, from the repository root:
+### `docker run`
+
+```sh
+docker run -d \
+  --name octopus-wheel-spinner \
+  --restart unless-stopped \
+  --env-file .env \
+  -e DB_PATH=/data/spins.db \
+  -v "$PWD/data:/data" \
+  -p 127.0.0.1:8080:8080 \
+  ghcr.io/dutts/octopuswheelspinner:latest
+```
+
+### Docker Compose
+
+```yaml
+services:
+  octopus-wheel-spinner:
+    image: ghcr.io/dutts/octopuswheelspinner:latest
+    container_name: octopus-wheel-spinner
+    env_file:
+      - .env
+    environment:
+      DB_PATH: /data/spins.db
+    volumes:
+      - ./data:/data
+    ports:
+      - "127.0.0.1:8080:8080"
+    restart: unless-stopped
+```
+
+```sh
+docker compose up -d
+docker compose logs -f
+```
+
+The image already contains a `HEALTHCHECK` that calls `/health`, so it does not need repeating in your compose file.
+`docker ps` shows `(healthy)` once it passes.
+
+Notes:
+
+- The port is published on `127.0.0.1` only, because the endpoints have no authentication. Change it to `8080:8080`
+  only if you trust your network.
+- The database is stored in `./data` on the host. The container runs as a non-root user (UID 1654), so on Linux make
+  sure that folder is writable by it.
+- If you fork this repository, the image is published under your own account and name, and GHCR packages are private by
+  default. Make the package public in its settings if you want others to pull it without logging in.
+
+## Build and run from source with Docker Compose
+
+To build the image yourself instead, create `OctopusWheelSpinner/.env` (it is git-ignored). Use plain `KEY=value` lines
+with no quotes and no `export`:
+
+```
+OCTOPUS_API_KEY=your-api-key
+OCTOPUS_ACCOUNT_NUMBER=A-1234ABCD
+SPIN_CRON=0 0 9 1 * ?
+```
+
+Then, from the repository root, use the `docker-compose.yml` in this repo, which builds from the `Dockerfile`:
 
 ```sh
 docker compose up -d --build
