@@ -38,6 +38,17 @@ All configuration is through environment variables.
 | `DB_PATH` | no | `data/spins.db` | Where the SQLite database is written |
 | `HEALTH_PORT` | no | `8080` | Port for the HTTP endpoints |
 | `LOG_FORMAT` | no | text | Set to `json` for structured JSON logs, one event per line |
+| `NTFY_URL` | no | | Base URL of your [ntfy](https://ntfy.sh) server, e.g. `https://ntfy.dutton.family`. Enables notifications (with `NTFY_TOPIC`) |
+| `NTFY_TOPIC` | no | | ntfy topic to publish to. Both this and `NTFY_URL` must be set to enable notifications |
+| `NTFY_USERNAME` | no | | ntfy username, for servers that need authentication |
+| `NTFY_API_KEY` | no | | ntfy access token (or password). Sent as Basic auth with `NTFY_USERNAME`, or as a Bearer token if no username is set |
+
+### Notifications
+
+If `NTFY_URL` and `NTFY_TOPIC` are set, a notification is sent after a run that spun the wheel (listing the points won
+per fuel), at high priority if any spin failed, and also if the run errors. Nothing is sent when no spins were
+available. A failure to deliver a notification is logged and never fails the run. Setting only one of the two required
+variables stops the app at startup.
 
 ### Schedule format
 
@@ -248,6 +259,7 @@ sqlite3 data/spins.db "select * from spin_attempts order by id desc"
 | --- | --- |
 | `Program.cs` | Configuration, logging (Serilog) and service wiring |
 | `SpinJob.cs` | The Quartz job that checks and spins for each fuel |
+| `Notifier.cs` | Optional ntfy notifications |
 | `OctopusClient.cs` | GraphQL client: authentication, spins allowed, spin, connectivity check |
 | `SpinStore.cs` | SQLite storage and queries |
 | `ApiServer.cs` | The `/health` and `/spins` endpoints |

@@ -29,6 +29,13 @@ static string Required(string name) =>
 try
 {
     var options = new OctopusOptions(Required("OCTOPUS_API_KEY"), Required("OCTOPUS_ACCOUNT_NUMBER"));
+    var ntfy = new NtfyOptions(
+        Environment.GetEnvironmentVariable("NTFY_URL"),
+        Environment.GetEnvironmentVariable("NTFY_TOPIC"),
+        Environment.GetEnvironmentVariable("NTFY_USERNAME"),
+        Environment.GetEnvironmentVariable("NTFY_API_KEY"));
+    if (!string.IsNullOrWhiteSpace(ntfy.Url) != !string.IsNullOrWhiteSpace(ntfy.Topic))
+        throw new InvalidOperationException("NTFY_URL and NTFY_TOPIC must both be set to enable ntfy notifications");
     var dbPath = Environment.GetEnvironmentVariable("DB_PATH") ?? "data/spins.db";
     // Quartz cron format: seconds minutes hours day-of-month month day-of-week [year]
     // Default: 09:00 on the 1st of every month
@@ -39,10 +46,13 @@ try
 
     Log.Information("Starting OctopusWheelSpinner for account {AccountNumber} with schedule {Cron}, database {DbPath}",
         options.AccountNumber, cron, dbPath);
+    Log.Information("ntfy notifications {NtfyState}", ntfy.Enabled ? $"enabled ({ntfy.Url}, topic {ntfy.Topic})" : "disabled");
 
     var builder = Host.CreateApplicationBuilder(args);
     builder.Services.AddSerilog(Log.Logger);
     builder.Services.AddSingleton(options);
+    builder.Services.AddSingleton(ntfy);
+    builder.Services.AddHttpClient<Notifier>();
     builder.Services.AddSingleton(new SpinStore(dbPath));
     // Octopus's gateway rejects requests with no User-Agent (HTTP 403)
     builder.Services.AddHttpClient<OctopusClient>(c => c.DefaultRequestHeaders.UserAgent.ParseAdd("OctopusWheelSpinner/1.0"));
