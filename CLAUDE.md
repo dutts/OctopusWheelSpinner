@@ -40,6 +40,9 @@ There is no test project and no linter configured.
 - **`ApiServer`** is a `BackgroundService` built on raw `HttpListener` (not ASP.NET Core). `/health` must always return
   200 while the process runs (the Docker `HEALTHCHECK` curls it, and an Octopus outage must not cause restarts); the
   Octopus reachability it reports comes from a background probe cached for 30s so the request never waits on Octopus.
+  It also serves `/scalar` (a Scalar API reference page loaded from the jsDelivr CDN) and `/openapi.json`, both embedded
+  resources from `ApiDocs/`. The OpenAPI document is hand-written, not generated, so update `ApiDocs/openapi.json`
+  whenever an endpoint's parameters or response shape change.
 - **`SpinStore`** uses `Microsoft.Data.Sqlite` directly with hand-written SQL, opening a connection per call. The
   `spin_attempts` table is created with `CREATE TABLE IF NOT EXISTS` in the constructor; there is no migration system,
   so schema changes need explicit handling for existing databases.

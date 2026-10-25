@@ -11,6 +11,8 @@ namespace OctopusWheelSpinner;
 ///                 Also reports whether the Octopus API is reachable, from a background probe cached briefly so
 ///                 frequent checks don't hammer the API and never wait on it.
 ///   GET /spins  - spin attempts and outcomes as JSON; optional ?limit=(1-1000, default 100) &fuel=electricity|gas &success=true|false
+///   GET /scalar - Scalar API reference page for trying the endpoints in a browser
+///   GET /openapi.json - the hand-written OpenAPI document the page is built from (ApiDocs/openapi.json)
 /// </summary>
 public sealed class ApiServer(OctopusClient client, SpinStore store, int port, ILogger<ApiServer> logger) : BackgroundService
 {
@@ -21,6 +23,9 @@ public sealed class ApiServer(OctopusClient client, SpinStore store, int port, I
     };
 
     private static readonly TimeSpan CacheFor = TimeSpan.FromSeconds(30);
+
+    private static readonly byte[] ScalarPage = Resource("ApiDocs.index.html");
+    private static readonly byte[] OpenApiDocument = Resource("ApiDocs.openapi.json");
 
     private readonly Lock _lock = new();
     private Task? _probe;
@@ -65,6 +70,12 @@ public sealed class ApiServer(OctopusClient client, SpinStore store, int port, I
                     break;
                 case "/spins":
                     await HandleSpinsAsync(context, ct);
+                    break;
+                case "/scalar":
+                    await WriteBytesAsync(context, "text/html; charset=utf-8", ScalarPage, ct);
+                    break;
+                case "/openapi.json":
+                    await WriteBytesAsync(context, "application/json", OpenApiDocument, ct);
                     break;
                 default:
                     context.Response.StatusCode = 404;
@@ -115,6 +126,22 @@ public sealed class ApiServer(OctopusClient client, SpinStore store, int port, I
         context.Response.StatusCode = status;
         context.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(context.Response.OutputStream, body, JsonOptions, ct);
+    }
+
+    private static async Task WriteBytesAsync(HttpListenerContext context, string contentType, byte[] body, CancellationToken ct)
+    {
+        context.Response.ContentType = contentType;
+        context.Response.ContentLength64 = body.Length;
+        await context.Response.OutputStream.WriteAsync(body, ct);
+    }
+
+    private static byte[] Resource(string name)
+    {
+        using var stream = typeof(ApiServer).Assembly.GetManifestResourceStream(name)
+                           ?? throw new InvalidOperationException($"Embedded resource {name} not found");
+        using var buffer = new MemoryStream();
+        stream.CopyTo(buffer);
+        return buffer.ToArray();
     }
 
     /// <summary>

@@ -235,6 +235,12 @@ curl "localhost:8080/spins?fuel=gas&limit=10"
 }
 ```
 
+### `GET /scalar`
+
+An interactive [Scalar](https://scalar.com) API reference for the endpoints above, where you can send requests from
+your browser: open <http://localhost:8080/scalar>. The page loads Scalar's script from the jsDelivr CDN, so the browser
+needs internet access. The OpenAPI document it is built from is served at `GET /openapi.json`.
+
 > **Security:** the endpoints have no authentication. Do not expose the port to the internet. To limit it to your own
 > machine, publish it as `127.0.0.1:8080:8080`.
 
@@ -265,4 +271,5 @@ sqlite3 data/spins.db "select * from spin_attempts order by id desc"
 | `Notifier.cs` | Optional ntfy notifications |
 | `OctopusClient.cs` | GraphQL client: authentication, spins allowed, spin, connectivity check |
 | `SpinStore.cs` | SQLite storage and queries |
-| `ApiServer.cs` | The `/health` and `/spins` endpoints |
+| `ApiServer.cs` | The `/health`, `/spins`, `/scalar` and `/openapi.json` endpoints |
+| `ApiDocs/` | The Scalar page and the hand-written OpenAPI document, embedded in the assembly |
