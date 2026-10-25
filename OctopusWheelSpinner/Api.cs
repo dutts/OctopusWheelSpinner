@@ -68,6 +68,7 @@ public static class Api
                 var check = octopus.Current();
                 return new HealthResponse("healthy", check?.Status ?? Connectivity.Unknown, check?.Error);
             })
+            .WithTags("Health")
             .WithSummary("Service health")
             .WithDescription(
                 "Returns 200 whenever the service is running. `octopus` reports whether the Octopus API is reachable, from a " +
@@ -84,6 +85,7 @@ public static class Api
                 var (summary, attempts) = store.Query(limit ?? 100, fuel?.Value, success);
                 return new SpinsResponse(summary, attempts);
             })
+            .WithTags("Spins")
             .WithSummary("Recorded spin attempts")
             .WithDescription(
                 "Returns the recorded spin attempts, newest first, with a summary. The summary applies the `fuel` and " +
