@@ -190,8 +190,8 @@ docker run -d --name octopus-wheel-spinner --env-file OctopusWheelSpinner/.env -
 
 The service listens on port `8080` (see `HEALTH_PORT`).
 
-The author's deployment is at <https://octopus.dutton.family>, behind a sign-in gateway, with its API reference at
-<https://octopus.dutton.family/scalar>.
+The author's deployment is at <https://octopus.dutton.family>, behind a sign-in gateway; opening it shows the API
+reference.
 
 ### `GET /health`
 
@@ -254,7 +254,7 @@ curl "localhost:8080/spins?fuel=gas&limit=10"
 ### `GET /scalar`
 
 An interactive [Scalar](https://scalar.com) API reference for the endpoints above, where you can send requests from
-your browser: open <http://localhost:8080/scalar>. It is built from the OpenAPI document served at `GET /openapi.json`,
+your browser: open <http://localhost:8080/>, which redirects to `/scalar/`. It is built from the OpenAPI document served at `GET /openapi.json`,
 which is generated from the endpoint definitions in `Api.cs`.
 
 > **Security:** the endpoints have no authentication. Do not expose the port to the internet. To limit it to your own

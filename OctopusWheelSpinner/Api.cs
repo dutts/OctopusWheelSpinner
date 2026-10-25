@@ -61,6 +61,8 @@ public static class Api
 
         app.MapOpenApi("/openapi.json");
         app.MapScalarApiReference(o => o.WithOpenApiRoutePattern("/openapi.json"));
+        // Redirect rather than map Scalar at "/": its /{documentName} route would then answer every unknown path with 200
+        app.MapGet("/", () => Results.Redirect("/scalar/")).ExcludeFromDescription();
 
         // Always 200 while the service runs, so an Octopus outage doesn't get the container restarted
         app.MapGet("/health", (OctopusHealth octopus) =>
