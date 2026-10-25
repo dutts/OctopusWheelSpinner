@@ -57,3 +57,10 @@ There is no test project and no linter configured.
   patch from the latest `v*` tag; push a tag to change major/minor) and are passed into the
   Dockerfile as `VERSION`/`INFORMATIONAL_VERSION` build args.
 - The container runs as non-root (`$APP_UID`); `DB_PATH` is set to `/data/spins.db` with `/data` mounted as a volume.
+
+## Deployment
+
+The live instance is at `https://octopus.dutton.family`, not `octopuswheelspinner.dutton.family`. Every path, including
+`/health`, redirects unauthenticated requests (302) to a sign-in gateway, so curl can't reach the app without a
+session. On the LAN the host resolves to `192.168.1.100`, whose certificate curl doesn't trust; publicly it goes through
+Cloudflare.

@@ -190,6 +190,9 @@ docker run -d --name octopus-wheel-spinner --env-file OctopusWheelSpinner/.env -
 
 The service listens on port `8080` (see `HEALTH_PORT`).
 
+The author's deployment is at <https://octopus.dutton.family>, behind a sign-in gateway, with its API reference at
+<https://octopus.dutton.family/scalar>.
+
 ### `GET /health`
 
 Returns `200` whenever the service is running. The Docker image's `HEALTHCHECK` uses it (via `curl`), so an Octopus
