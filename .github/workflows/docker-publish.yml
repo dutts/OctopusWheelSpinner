@@ -70,3 +70,14 @@ jobs:
             INFORMATIONAL_VERSION=${{ steps.gitversion.outputs.informationalVersion }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Ask the home-swarm Woodpecker to roll the service forward now rather
+      # than waiting for its weekly update cron.
+      - name: Roll out to swarm
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${{ secrets.WOODPECKER_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{"branch":"main","variables":{"SERVICE":"octopuswheelspinner_octopuswheelspinner"}}' \
+            "https://woodpecker.dutton.family/api/repos/${{ vars.WOODPECKER_REPO_ID }}/pipelines"
