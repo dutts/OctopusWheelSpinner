@@ -67,7 +67,7 @@ There is no test project and no linter configured.
 
 ## Deployment
 
-The live instance is at `https://octopus.dutton.family`, not `octopuswheelspinner.dutton.family`. Every path, including
-`/health`, redirects unauthenticated requests (302) to a sign-in gateway, so curl can't reach the app without a
+The live instance is at `https://octopuswheelspinner.dutton.family` (`octopus.dutton.family` also still works). Every
+path, including `/health`, redirects unauthenticated requests (302) to a sign-in gateway, so curl can't reach the app without a
 session. On the LAN the host resolves to `192.168.1.100`, whose certificate curl doesn't trust; publicly it goes through
 Cloudflare.
