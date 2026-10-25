@@ -7,7 +7,9 @@ namespace OctopusWheelSpinner;
 
 /// <summary>
 /// Serves:
-///   GET /health - 200 if the Octopus API is reachable, 503 if not (cached briefly so frequent checks don't hammer the API)
+///   GET /health - 200 while the service is running, so an Octopus outage doesn't get the container restarted.
+///                 Also reports whether the Octopus API is reachable, from a background probe cached briefly so
+///                 frequent checks don't hammer the API and never wait on it.
 ///   GET /spins  - spin attempts and outcomes as JSON; optional ?limit=(1-1000, default 100) &fuel=electricity|gas &success=true|false
 /// </summary>
 public sealed class ApiServer(OctopusClient client, SpinStore store, int port, ILogger<ApiServer> logger) : BackgroundService
@@ -20,8 +22,10 @@ public sealed class ApiServer(OctopusClient client, SpinStore store, int port, I
 
     private static readonly TimeSpan CacheFor = TimeSpan.FromSeconds(30);
 
-    private readonly SemaphoreSlim _lock = new(1, 1);
+    private readonly Lock _lock = new();
+    private Task? _probe;
     private DateTimeOffset _checkedAt;
+    private bool _checked;
     private string? _failure;
 
     protected override async Task ExecuteAsync(CancellationToken ct)
@@ -55,9 +59,9 @@ public sealed class ApiServer(OctopusClient client, SpinStore store, int port, I
             switch (context.Request.Url?.AbsolutePath)
             {
                 case "/health":
-                    var failure = await CheckAsync(ct);
-                    await WriteJsonAsync(context, failure is null ? 200 : 503,
-                        new { status = failure is null ? "healthy" : "unhealthy", error = failure }, ct);
+                    var (octopusChecked, failure) = OctopusStatus(ct);
+                    var octopus = !octopusChecked ? "unknown" : failure is null ? "reachable" : "unreachable";
+                    await WriteJsonAsync(context, 200, new { status = "healthy", octopus, error = failure }, ct);
                     break;
                 case "/spins":
                     await HandleSpinsAsync(context, ct);
@@ -113,26 +117,35 @@ public sealed class ApiServer(OctopusClient client, SpinStore store, int port, I
         await JsonSerializer.SerializeAsync(context.Response.OutputStream, body, JsonOptions, ct);
     }
 
-    private async Task<string?> CheckAsync(CancellationToken ct)
+    /// <summary>
+    /// Returns the last Octopus probe result straight away, starting a fresh probe in the background if it's stale.
+    /// </summary>
+    private (bool Checked, string? Failure) OctopusStatus(CancellationToken ct)
     {
-        await _lock.WaitAsync(ct);
-        try
+        lock (_lock)
         {
-            if (DateTimeOffset.UtcNow - _checkedAt < CacheFor) return _failure;
+            if (DateTimeOffset.UtcNow - _checkedAt >= CacheFor && _probe is null or { IsCompleted: true })
+                _probe = Task.Run(() => ProbeAsync(ct), CancellationToken.None);
+            return (_checked, _failure);
+        }
+    }
 
-            var failure = await client.CheckConnectivityAsync(ct);
+    private async Task ProbeAsync(CancellationToken ct)
+    {
+        string? failure;
+        try { failure = await client.CheckConnectivityAsync(ct); }
+        catch (Exception ex) { failure = ex.GetType().Name; }
+
+        lock (_lock)
+        {
             if (failure is not null && _failure is null)
-                logger.LogWarning("Health check failed: {Failure}", failure);
+                logger.LogWarning("Octopus API unreachable: {Failure}", failure);
             else if (failure is null && _failure is not null)
-                logger.LogInformation("Health check recovered");
+                logger.LogInformation("Octopus API reachable again");
 
             _failure = failure;
+            _checked = true;
             _checkedAt = DateTimeOffset.UtcNow;
-            return failure;
-        }
-        finally
-        {
-            _lock.Release();
         }
     }
 }

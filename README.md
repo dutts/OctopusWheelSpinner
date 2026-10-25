@@ -192,15 +192,18 @@ The service listens on port `8080` (see `HEALTH_PORT`).
 
 ### `GET /health`
 
-Checks that the Octopus API is reachable. It sends an unauthenticated `{ __typename }` query to the Octopus endpoints,
-so it does not use your credentials or touch your account. Returns `200` when healthy and `503` when not:
+Returns `200` whenever the service is running. The Docker image's `HEALTHCHECK` uses it (via `curl`), so an Octopus
+outage doesn't get the container restarted over and over.
+
+The response also says whether the Octopus API is reachable. That check sends an unauthenticated `{ __typename }`
+query to the Octopus endpoints, so it does not use your credentials or touch your account:
 
 ```json
-{ "status": "healthy", "error": null }
+{ "status": "healthy", "octopus": "unreachable", "error": "api.octopus.energy: TaskCanceledException" }
 ```
 
-The result is cached for 30 seconds. The Docker image and compose file both use this endpoint for their `HEALTHCHECK`
-(via `curl`).
+`octopus` is `reachable`, `unreachable`, or `unknown` until the first check finishes. The check runs in the background
+and its result is cached for 30 seconds, so `/health` answers immediately and never waits on Octopus.
 
 ### `GET /spins`
 
