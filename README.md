@@ -199,11 +199,21 @@ The response also says whether the Octopus API is reachable. That check sends an
 query to the Octopus endpoints, so it does not use your credentials or touch your account:
 
 ```json
-{ "status": "healthy", "octopus": "unreachable", "error": "api.octopus.energy: TaskCanceledException" }
+{ "status": "healthy", "octopus": "slow", "error": "api.octopus.energy: no response within 10s" }
 ```
 
-`octopus` is `reachable`, `unreachable`, or `unknown` until the first check finishes. The check runs in the background
-and its result is cached for 30 seconds, so `/health` answers immediately and never waits on Octopus.
+`octopus` is one of:
+
+| Value | Meaning |
+| --- | --- |
+| `reachable` | Both endpoints answered within 10 seconds |
+| `slow` | A connection was made, but an endpoint didn't answer within 10 seconds. Octopus is up but responding slowly |
+| `unreachable` | An endpoint couldn't be connected to within 5 seconds, failed DNS or TLS, or returned an HTTP error |
+| `unknown` | The first check hasn't finished yet |
+
+If the endpoints differ, the worse result is reported, and `error` lists each endpoint that wasn't reachable. The check
+runs in the background and its result is cached for 30 seconds, so `/health` answers immediately and never waits on
+Octopus.
 
 ### `GET /spins`
 

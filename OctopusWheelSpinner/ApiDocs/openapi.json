@@ -9,7 +9,7 @@
     "/health": {
       "get": {
         "summary": "Service health",
-        "description": "Returns 200 whenever the service is running. `octopus` reports whether the Octopus API is reachable, from a background check cached for 30 seconds; it is `unknown` until the first check finishes.",
+        "description": "Returns 200 whenever the service is running. `octopus` reports whether the Octopus API is reachable, from a background check cached for 30 seconds: `slow` means a connection was made but no response came within 10 seconds, `unreachable` means no connection within 5 seconds, a DNS or TLS failure, or an HTTP error, and `unknown` means the first check hasn't finished.",
         "operationId": "getHealth",
         "responses": {
           "200": {
@@ -76,11 +76,11 @@
         "required": ["status", "octopus", "error"],
         "properties": {
           "status": { "type": "string", "enum": ["healthy"] },
-          "octopus": { "type": "string", "enum": ["reachable", "unreachable", "unknown"] },
+          "octopus": { "type": "string", "enum": ["reachable", "slow", "unreachable", "unknown"] },
           "error": {
             "type": ["string", "null"],
-            "description": "Why the Octopus API is unreachable",
-            "examples": ["api.octopus.energy: TaskCanceledException"]
+            "description": "Each Octopus endpoint that was slow or unreachable, and why",
+            "examples": ["api.octopus.energy: no response within 10s"]
           }
         }
       },

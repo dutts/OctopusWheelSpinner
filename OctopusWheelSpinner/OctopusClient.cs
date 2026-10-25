@@ -8,12 +8,31 @@ public enum FuelType { Electricity, Gas }
 
 public sealed record SpinResult(bool Success, int? Points, string? Error);
 
+// Ordered from best to worst: a check across several hosts reports the worst
+public enum Connectivity { Reachable, Slow, Unreachable }
+
+public sealed record ConnectivityCheck(Connectivity Status, string? Error);
+
 public sealed class OctopusClient(HttpClient http, OctopusOptions options)
 {
+    // Octopus's gateway rejects requests with no User-Agent (HTTP 403)
+    public const string UserAgent = "OctopusWheelSpinner/1.0";
+
     private const string TokenUrl = "https://api.octopus.energy/v1/graphql/";
     private const string BackendUrl = "https://api.backend.octopus.energy/v1/graphql/";
 
     private static readonly string[] HealthUrls = [TokenUrl, BackendUrl];
+
+    private static readonly TimeSpan ProbeConnectTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan ProbeResponseTimeout = TimeSpan.FromSeconds(10);
+
+    // The probe has its own handler with a connect timeout (TCP and TLS) shorter than the overall timeout, so a host
+    // that can't be connected to fails first, and the overall timeout only fires for a connected but slow response
+    private static readonly HttpClient ProbeHttp =
+        new(new SocketsHttpHandler { ConnectTimeout = ProbeConnectTimeout, PooledConnectionLifetime = TimeSpan.FromMinutes(5) })
+        {
+            DefaultRequestHeaders = { { "User-Agent", UserAgent } }
+        };
 
     private string? _token;
     private DateTimeOffset _tokenExpiry;
@@ -46,26 +65,40 @@ public sealed class OctopusClient(HttpClient http, OctopusOptions options)
     /// Connectivity probe only: sends an unauthenticated <c>{ __typename }</c> query to each endpoint.
     /// Uses no credentials and has no side effects.
     /// </summary>
-    public async Task<string?> CheckConnectivityAsync(CancellationToken ct)
+    public async Task<ConnectivityCheck> CheckConnectivityAsync(CancellationToken ct)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+        timeout.CancelAfter(ProbeResponseTimeout);
 
         var checks = HealthUrls.Select(async url =>
         {
+            var host = new Uri(url).Host;
             try
             {
-                using var response = await http.PostAsJsonAsync(url, new { query = "{ __typename }" }, timeout.Token);
-                return response.IsSuccessStatusCode ? null : $"{new Uri(url).Host}: HTTP {(int)response.StatusCode}";
+                using var response = await ProbeHttp.PostAsJsonAsync(url, new { query = "{ __typename }" }, timeout.Token);
+                return response.IsSuccessStatusCode
+                    ? new ConnectivityCheck(Connectivity.Reachable, null)
+                    : new ConnectivityCheck(Connectivity.Unreachable, $"{host}: HTTP {(int)response.StatusCode}");
+            }
+            // Our own timeout fired, so the connection was made (a connect timeout would have fired first)
+            catch (OperationCanceledException) when (timeout.IsCancellationRequested && !ct.IsCancellationRequested)
+            {
+                return new ConnectivityCheck(Connectivity.Slow, $"{host}: no response within {ProbeResponseTimeout.TotalSeconds:0}s");
+            }
+            // The handler's connect timeout throws TaskCanceledException wrapping a TimeoutException
+            catch (OperationCanceledException ex) when (ex.InnerException is TimeoutException)
+            {
+                return new ConnectivityCheck(Connectivity.Unreachable, $"{host}: no connection within {ProbeConnectTimeout.TotalSeconds:0}s");
             }
             catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
             {
-                return $"{new Uri(url).Host}: {ex.GetType().Name}";
+                return new ConnectivityCheck(Connectivity.Unreachable, $"{host}: {ex.GetType().Name}");
             }
         });
 
-        var failures = (await Task.WhenAll(checks)).Where(f => f is not null);
-        return failures.Any() ? string.Join("; ", failures) : null;
+        var results = await Task.WhenAll(checks);
+        var errors = results.Select(r => r.Error).OfType<string>().ToList();
+        return new ConnectivityCheck(results.Max(r => r.Status), errors.Count > 0 ? string.Join("; ", errors) : null);
     }
 
     private async Task EnsureTokenAsync(CancellationToken ct)

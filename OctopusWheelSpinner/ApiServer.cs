@@ -8,7 +8,7 @@ namespace OctopusWheelSpinner;
 /// <summary>
 /// Serves:
 ///   GET /health - 200 while the service is running, so an Octopus outage doesn't get the container restarted.
-///                 Also reports whether the Octopus API is reachable, from a background probe cached briefly so
+///                 Also reports whether the Octopus API is reachable, slow or unreachable, from a background probe cached briefly so
 ///                 frequent checks don't hammer the API and never wait on it.
 ///   GET /spins  - spin attempts and outcomes as JSON; optional ?limit=(1-1000, default 100) &fuel=electricity|gas &success=true|false
 ///   GET /scalar - Scalar API reference page for trying the endpoints in a browser
@@ -30,8 +30,7 @@ public sealed class ApiServer(OctopusClient client, SpinStore store, int port, I
     private readonly Lock _lock = new();
     private Task? _probe;
     private DateTimeOffset _checkedAt;
-    private bool _checked;
-    private string? _failure;
+    private ConnectivityCheck? _octopus;
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
@@ -64,9 +63,13 @@ public sealed class ApiServer(OctopusClient client, SpinStore store, int port, I
             switch (context.Request.Url?.AbsolutePath)
             {
                 case "/health":
-                    var (octopusChecked, failure) = OctopusStatus(ct);
-                    var octopus = !octopusChecked ? "unknown" : failure is null ? "reachable" : "unreachable";
-                    await WriteJsonAsync(context, 200, new { status = "healthy", octopus, error = failure }, ct);
+                    var octopus = OctopusStatus(ct);
+                    await WriteJsonAsync(context, 200, new
+                    {
+                        status = "healthy",
+                        octopus = octopus?.Status.ToString().ToLowerInvariant() ?? "unknown",
+                        error = octopus?.Error
+                    }, ct);
                     break;
                 case "/spins":
                     await HandleSpinsAsync(context, ct);
@@ -147,31 +150,34 @@ public sealed class ApiServer(OctopusClient client, SpinStore store, int port, I
     /// <summary>
     /// Returns the last Octopus probe result straight away, starting a fresh probe in the background if it's stale.
     /// </summary>
-    private (bool Checked, string? Failure) OctopusStatus(CancellationToken ct)
+    private ConnectivityCheck? OctopusStatus(CancellationToken ct)
     {
         lock (_lock)
         {
             if (DateTimeOffset.UtcNow - _checkedAt >= CacheFor && _probe is null or { IsCompleted: true })
                 _probe = Task.Run(() => ProbeAsync(ct), CancellationToken.None);
-            return (_checked, _failure);
+            return _octopus;
         }
     }
 
     private async Task ProbeAsync(CancellationToken ct)
     {
-        string? failure;
-        try { failure = await client.CheckConnectivityAsync(ct); }
-        catch (Exception ex) { failure = ex.GetType().Name; }
+        ConnectivityCheck result;
+        try { result = await client.CheckConnectivityAsync(ct); }
+        catch (Exception ex) { result = new ConnectivityCheck(Connectivity.Unreachable, ex.GetType().Name); }
 
         lock (_lock)
         {
-            if (failure is not null && _failure is null)
-                logger.LogWarning("Octopus API unreachable: {Failure}", failure);
-            else if (failure is null && _failure is not null)
-                logger.LogInformation("Octopus API reachable again");
+            // Log only changes; a first check that finds Octopus reachable logs nothing
+            if (result.Status != (_octopus?.Status ?? Connectivity.Reachable))
+            {
+                if (result.Status == Connectivity.Reachable)
+                    logger.LogInformation("Octopus API reachable again");
+                else
+                    logger.LogWarning("Octopus API {Connectivity}: {Error}", result.Status.ToString().ToLowerInvariant(), result.Error);
+            }
 
-            _failure = failure;
-            _checked = true;
+            _octopus = result;
             _checkedAt = DateTimeOffset.UtcNow;
         }
     }

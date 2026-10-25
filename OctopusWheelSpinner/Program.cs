@@ -54,8 +54,7 @@ try
     builder.Services.AddSingleton(ntfy);
     builder.Services.AddHttpClient<Notifier>();
     builder.Services.AddSingleton(new SpinStore(dbPath));
-    // Octopus's gateway rejects requests with no User-Agent (HTTP 403)
-    builder.Services.AddHttpClient<OctopusClient>(c => c.DefaultRequestHeaders.UserAgent.ParseAdd("OctopusWheelSpinner/1.0"));
+    builder.Services.AddHttpClient<OctopusClient>(c => c.DefaultRequestHeaders.UserAgent.ParseAdd(OctopusClient.UserAgent));
     builder.Services.AddQuartz(q =>
     {
         var jobKey = new JobKey("spin");
