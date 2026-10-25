@@ -1,4 +1,4 @@
-﻿FROM mcr.microsoft.com/dotnet/runtime:10.0 AS base
+﻿FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
 # curl is used by the HEALTHCHECK
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \

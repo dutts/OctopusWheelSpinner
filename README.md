@@ -225,8 +225,11 @@ Returns the recorded spin attempts, newest first, with a summary.
 | Query parameter | Description |
 | --- | --- |
 | `limit` | Maximum attempts returned, 1 to 1000 (default 100). The summary ignores this. |
-| `fuel` | `electricity` or `gas` |
+| `fuel` | `electricity` or `gas` (case doesn't matter) |
 | `success` | `true` or `false` |
+
+An invalid parameter returns `400` with a [problem details](https://www.rfc-editor.org/rfc/rfc9457) body saying which
+parameter was wrong.
 
 ```sh
 curl "localhost:8080/spins?fuel=gas&limit=10"
@@ -251,8 +254,8 @@ curl "localhost:8080/spins?fuel=gas&limit=10"
 ### `GET /scalar`
 
 An interactive [Scalar](https://scalar.com) API reference for the endpoints above, where you can send requests from
-your browser: open <http://localhost:8080/scalar>. The page loads Scalar's script from the jsDelivr CDN, so the browser
-needs internet access. The OpenAPI document it is built from is served at `GET /openapi.json`.
+your browser: open <http://localhost:8080/scalar>. It is built from the OpenAPI document served at `GET /openapi.json`,
+which is generated from the endpoint definitions in `Api.cs`.
 
 > **Security:** the endpoints have no authentication. Do not expose the port to the internet. To limit it to your own
 > machine, publish it as `127.0.0.1:8080:8080`.
@@ -284,5 +287,5 @@ sqlite3 data/spins.db "select * from spin_attempts order by id desc"
 | `Notifier.cs` | Optional ntfy notifications |
 | `OctopusClient.cs` | GraphQL client: authentication, spins allowed, spin, connectivity check |
 | `SpinStore.cs` | SQLite storage and queries |
-| `ApiServer.cs` | The `/health`, `/spins`, `/scalar` and `/openapi.json` endpoints |
-| `ApiDocs/` | The Scalar page and the hand-written OpenAPI document, embedded in the assembly |
+| `Api.cs` | The `/health`, `/spins`, `/scalar` and `/openapi.json` endpoints (ASP.NET Core minimal APIs) |
+| `OctopusHealth.cs` | The cached background check of the Octopus API reported by `/health` |

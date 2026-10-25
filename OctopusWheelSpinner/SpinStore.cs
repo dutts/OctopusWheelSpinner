@@ -2,7 +2,7 @@ using Microsoft.Data.Sqlite;
 
 namespace OctopusWheelSpinner;
 
-public sealed record SpinAttempt(long Id, DateTimeOffset AttemptedAt, string Fuel, bool Success, int? PointsWon, string? Error);
+public sealed record SpinAttempt(long Id, DateTimeOffset AttemptedAt, FuelType Fuel, bool Success, int? PointsWon, string? Error);
 
 public sealed record SpinSummary(int Attempts, int Successful, int Failed, long TotalPointsWon);
 
@@ -88,7 +88,7 @@ public sealed class SpinStore
             attempts.Add(new SpinAttempt(
                 lr.GetInt64(0),
                 DateTimeOffset.Parse(lr.GetString(1)),
-                lr.GetString(2),
+                Enum.Parse<FuelType>(lr.GetString(2)),
                 lr.GetInt32(3) == 1,
                 lr.IsDBNull(4) ? null : lr.GetInt32(4),
                 lr.IsDBNull(5) ? null : lr.GetString(5)));

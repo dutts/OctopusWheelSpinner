@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 
 namespace OctopusWheelSpinner;
 
@@ -8,8 +9,14 @@ public enum FuelType { Electricity, Gas }
 
 public sealed record SpinResult(bool Success, int? Points, string? Error);
 
-// Ordered from best to worst: a check across several hosts reports the worst
-public enum Connectivity { Reachable, Slow, Unreachable }
+// Unknown means not checked yet. The rest are ordered from best to worst: a check across several hosts reports the worst
+public enum Connectivity
+{
+    [JsonStringEnumMemberName("unknown")] Unknown,
+    [JsonStringEnumMemberName("reachable")] Reachable,
+    [JsonStringEnumMemberName("slow")] Slow,
+    [JsonStringEnumMemberName("unreachable")] Unreachable
+}
 
 public sealed record ConnectivityCheck(Connectivity Status, string? Error);
 
@@ -65,7 +72,7 @@ public sealed class OctopusClient(HttpClient http, OctopusOptions options)
     /// Connectivity probe only: sends an unauthenticated <c>{ __typename }</c> query to each endpoint.
     /// Uses no credentials and has no side effects.
     /// </summary>
-    public async Task<ConnectivityCheck> CheckConnectivityAsync(CancellationToken ct)
+    public static async Task<ConnectivityCheck> CheckConnectivityAsync(CancellationToken ct)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(ProbeResponseTimeout);

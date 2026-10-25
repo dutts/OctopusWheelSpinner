@@ -1,5 +1,3 @@
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using OctopusWheelSpinner;
 using Quartz;
 using Serilog;
@@ -48,7 +46,9 @@ try
         options.AccountNumber, cron, dbPath);
     Log.Information("ntfy notifications {NtfyState}", ntfy.Enabled ? $"enabled ({ntfy.Url}, topic {ntfy.Topic})" : "disabled");
 
-    var builder = Host.CreateApplicationBuilder(args);
+    var builder = WebApplication.CreateBuilder(args);
+    // Replaces the port from ASPNETCORE_HTTP_PORTS (8080 in the aspnet base image) without an override warning
+    builder.WebHost.UseSetting(WebHostDefaults.HttpPortsKey, healthPort.ToString());
     builder.Services.AddSerilog(Log.Logger);
     builder.Services.AddSingleton(options);
     builder.Services.AddSingleton(ntfy);
@@ -65,10 +65,14 @@ try
             // If the app was down at the scheduled time, run once on startup rather than skipping the month
             .WithCronSchedule(cron, x => x.WithMisfireInstruction(CronTriggerMisfireInstruction.FireAndProceed)));
     });
-    builder.Services.AddHostedService(sp => ActivatorUtilities.CreateInstance<ApiServer>(sp, healthPort));
     builder.Services.AddQuartzHostedService(q => q.WaitForJobsToComplete = true);
+    builder.Services.AddSingleton<OctopusHealth>();
+    builder.Services.AddApi();
 
-    await builder.Build().RunAsync();
+    var app = builder.Build();
+    app.MapApi();
+    app.Lifetime.ApplicationStarted.Register(() => Log.Information("HTTP endpoint listening on port {Port}", healthPort));
+    await app.RunAsync();
 }
 catch (Exception ex)
 {
