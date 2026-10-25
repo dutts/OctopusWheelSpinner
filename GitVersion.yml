@@ -1,2 +1,3 @@
-mode: ContinuousDeployment
-next-version: 0.1.0
+# Every commit to main gets the next patch version after the latest v* tag.
+# Push a tag (e.g. v0.2.0) to move the major or minor version.
+workflow: TrunkBased/preview1

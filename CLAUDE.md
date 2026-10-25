@@ -53,6 +53,7 @@ There is no test project and no linter configured.
 - Feature changes update `README.md` in the same commit (env var table, endpoint docs, project layout table).
 - Code style: file-scoped namespaces, primary constructors, `sealed` classes/records, nullable enabled.
 - CI (`.github/workflows/docker-publish.yml`) builds a multi-arch (amd64/arm64) image and pushes to GHCR on `main` and
-  `v*` tags; version numbers come from GitVersion (`GitVersion.yml`, ContinuousDeployment mode) and are passed into the
+  `v*` tags; version numbers come from GitVersion (`GitVersion.yml`, TrunkBased workflow: each commit on `main` bumps the
+  patch from the latest `v*` tag; push a tag to change major/minor) and are passed into the
   Dockerfile as `VERSION`/`INFORMATIONAL_VERSION` build args.
 - The container runs as non-root (`$APP_UID`); `DB_PATH` is set to `/data/spins.db` with `/data` mounted as a volume.
