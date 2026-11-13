@@ -9,6 +9,14 @@ public enum FuelType { Electricity, Gas }
 
 public sealed record SpinResult(bool Success, int? Points, string? Error);
 
+public sealed record ScratchcardSession(Guid ExternalReference, DateTimeOffset StartsAt, DateTimeOffset EndsAt);
+
+// AlreadyScratched is only meaningful when Session is not null
+public sealed record ActiveScratchcard(ScratchcardSession? Session, bool AlreadyScratched);
+
+// Status is the raw ScratchcardStatus enum name, e.g. DID_NOT_WIN or PRIZE_NOT_YET_CLAIMED
+public sealed record ScratchResult(bool Success, string? Status, string? Prize, string? Error);
+
 // Unknown means not checked yet. The rest are ordered from best to worst: a check across several hosts reports the worst
 public enum Connectivity
 {
@@ -24,11 +32,6 @@ public sealed class OctopusClient(HttpClient http, OctopusOptions options)
 {
     // Octopus's gateway rejects requests with no User-Agent (HTTP 403)
     public const string UserAgent = "OctopusWheelSpinner/1.0";
-
-    private const string TokenUrl = "https://api.octopus.energy/v1/graphql/";
-    private const string BackendUrl = "https://api.backend.octopus.energy/v1/graphql/";
-
-    private static readonly string[] HealthUrls = [TokenUrl, BackendUrl];
 
     private static readonly TimeSpan ProbeConnectTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan ProbeResponseTimeout = TimeSpan.FromSeconds(10);
@@ -68,18 +71,67 @@ public sealed class OctopusClient(HttpClient http, OctopusOptions options)
         }
     }
 
+    public async Task<ActiveScratchcard> GetActiveScratchcardAsync(CancellationToken ct)
+    {
+        var data = await SendAsync($$"""
+            query { octoplusActiveScratchcardData(accountNumber: "{{options.AccountNumber}}") { activeSession { externalReference startsAt endsAt } scratchcard {{{ScratchcardFields}}} } }
+            """, ct);
+        var node = data["octoplusActiveScratchcardData"];
+        if (node?["activeSession"] is not { } session) return new ActiveScratchcard(null, false);
+
+        return new ActiveScratchcard(
+            new ScratchcardSession(
+                Guid.Parse(session["externalReference"]!.GetValue<string>()),
+                session["startsAt"]!.GetValue<DateTimeOffset>(),
+                session["endsAt"]!.GetValue<DateTimeOffset>()),
+            node["scratchcard"] is not null);
+    }
+
+    // Scratches only: a won offer still has to be claimed in the Octopus app
+    public async Task<ScratchResult> ScratchAsync(Guid sessionReference, CancellationToken ct)
+    {
+        try
+        {
+            var data = await SendAsync($$"""
+                mutation { scratchOctoplusScratchcard(input: { accountNumber: "{{options.AccountNumber}}", scratchcardSessionExternalReference: "{{sessionReference}}" }) { scratchcard {{{ScratchcardFields}}} } }
+                """, ct);
+            return data["scratchOctoplusScratchcard"]?["scratchcard"] is { } card
+                ? new ScratchResult(true, card["status"]?.GetValue<string>(), DescribePrize(card["prize"]), null)
+                : new ScratchResult(false, null, null, "No scratchcard in response");
+        }
+        catch (OctopusApiException ex)
+        {
+            return new ScratchResult(false, null, null, ex.Message);
+        }
+    }
+
+    private const string ScratchcardFields =
+        "externalReference status prize { __typename ... on OctoplusOfferType { slug name } ... on StampsAwardedType { totalStampsAwarded } }";
+
+    private static string? DescribePrize(JsonNode? prize) => prize?["__typename"]?.GetValue<string>() switch
+    {
+        "OctoplusOfferType" => prize["name"]?.GetValue<string>(),
+        "StampsAwardedType" => prize["totalStampsAwarded"]?.GetValue<int>() switch
+        {
+            null => null,
+            1 => "1 stamp",
+            var n => $"{n} stamps"
+        },
+        _ => null
+    };
+
     /// <summary>
     /// Connectivity probe only: sends an unauthenticated <c>{ __typename }</c> query to each endpoint.
     /// Uses no credentials and has no side effects.
     /// </summary>
-    public static async Task<ConnectivityCheck> CheckConnectivityAsync(CancellationToken ct)
+    public static async Task<ConnectivityCheck> CheckConnectivityAsync(OctopusOptions options, CancellationToken ct)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(ProbeResponseTimeout);
 
-        var checks = HealthUrls.Select(async url =>
+        var checks = new[] { options.TokenUrl, options.BackendUrl }.Select(async url =>
         {
-            var host = new Uri(url).Host;
+            var host = url.Host;
             try
             {
                 using var response = await ProbeHttp.PostAsJsonAsync(url, new { query = "{ __typename }" }, timeout.Token);
@@ -113,7 +165,7 @@ public sealed class OctopusClient(HttpClient http, OctopusOptions options)
         if (_token is not null && _tokenExpiry > DateTimeOffset.UtcNow.AddMinutes(5)) return;
 
         var query = $$"""mutation { obtainKrakenToken(input: { APIKey: "{{options.ApiKey}}" }) { token payload } }""";
-        var data = await PostAsync(TokenUrl, query, token: null, ct);
+        var data = await PostAsync(options.TokenUrl, query, token: null, ct);
         _token = data["obtainKrakenToken"]?["token"]?.GetValue<string>()
                  ?? throw new OctopusApiException("Failed to obtain token");
         var exp = data["obtainKrakenToken"]?["payload"]?["exp"]?.GetValue<long>();
@@ -123,10 +175,10 @@ public sealed class OctopusClient(HttpClient http, OctopusOptions options)
     private async Task<JsonNode> SendAsync(string query, CancellationToken ct)
     {
         await EnsureTokenAsync(ct);
-        return await PostAsync(BackendUrl, query, _token, ct);
+        return await PostAsync(options.BackendUrl, query, _token, ct);
     }
 
-    private async Task<JsonNode> PostAsync(string url, string query, string? token, CancellationToken ct)
+    private async Task<JsonNode> PostAsync(Uri url, string query, string? token, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = JsonContent.Create(new { query }) };
         if (token is not null) request.Headers.TryAddWithoutValidation("Authorization", token);
@@ -146,4 +198,8 @@ public sealed class OctopusClient(HttpClient http, OctopusOptions options)
 
 public sealed class OctopusApiException(string message) : Exception(message);
 
-public sealed record OctopusOptions(string ApiKey, string AccountNumber);
+public sealed record OctopusOptions(string ApiKey, string AccountNumber, Uri TokenUrl, Uri BackendUrl)
+{
+    public static readonly Uri DefaultTokenUrl = new("https://api.octopus.energy/v1/graphql/");
+    public static readonly Uri DefaultBackendUrl = new("https://api.backend.octopus.energy/v1/graphql/");
+}

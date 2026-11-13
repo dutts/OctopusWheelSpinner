@@ -4,7 +4,7 @@ namespace OctopusWheelSpinner;
 /// Octopus API reachability for /health, from a background probe cached briefly so frequent health checks don't
 /// hammer the API and never wait on it.
 /// </summary>
-public sealed class OctopusHealth(IHostApplicationLifetime lifetime, ILogger<OctopusHealth> logger)
+public sealed class OctopusHealth(IHostApplicationLifetime lifetime, OctopusOptions options, ILogger<OctopusHealth> logger)
 {
     private static readonly TimeSpan CacheFor = TimeSpan.FromSeconds(30);
 
@@ -30,7 +30,7 @@ public sealed class OctopusHealth(IHostApplicationLifetime lifetime, ILogger<Oct
     private async Task ProbeAsync(CancellationToken ct)
     {
         ConnectivityCheck result;
-        try { result = await OctopusClient.CheckConnectivityAsync(ct); }
+        try { result = await OctopusClient.CheckConnectivityAsync(options, ct); }
         catch (Exception ex) { result = new ConnectivityCheck(Connectivity.Unreachable, ex.GetType().Name); }
 
         lock (_lock)

@@ -24,9 +24,20 @@ static string Required(string name) =>
         ? v
         : throw new InvalidOperationException($"Environment variable {name} is required");
 
+static Uri OptionalUrl(string name, Uri fallback) =>
+    Environment.GetEnvironmentVariable(name) is not { Length: > 0 } v
+        ? fallback
+        : Uri.TryCreate(v, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https"
+            ? uri
+            : throw new InvalidOperationException($"{name} '{v}' is not an absolute http(s) URL");
+
 try
 {
-    var options = new OctopusOptions(Required("OCTOPUS_API_KEY"), Required("OCTOPUS_ACCOUNT_NUMBER"));
+    var options = new OctopusOptions(
+        Required("OCTOPUS_API_KEY"),
+        Required("OCTOPUS_ACCOUNT_NUMBER"),
+        OptionalUrl("OCTOPUS_API_URL", OctopusOptions.DefaultTokenUrl),
+        OptionalUrl("OCTOPUS_BACKEND_URL", OctopusOptions.DefaultBackendUrl));
     var ntfy = new NtfyOptions(
         Environment.GetEnvironmentVariable("NTFY_URL"),
         Environment.GetEnvironmentVariable("NTFY_TOPIC"),
@@ -41,9 +52,14 @@ try
     if (!CronExpression.TryParse(cron, out _))
         throw new InvalidOperationException(
             $"SPIN_CRON '{cron}' is not a valid Quartz cron expression (format: sec min hour day-of-month month day-of-week; use ? for one of the two day fields)");
+    // Default: 09:00 every Monday, when Octoplus opens the weekly scratch card session
+    var scratchCron = Environment.GetEnvironmentVariable("SCRATCH_CRON") is { Length: > 0 } sc ? sc : "0 0 9 ? * MON";
+    if (!CronExpression.TryParse(scratchCron, out _))
+        throw new InvalidOperationException(
+            $"SCRATCH_CRON '{scratchCron}' is not a valid Quartz cron expression (format: sec min hour day-of-month month day-of-week; use ? for one of the two day fields)");
 
-    Log.Information("Starting OctopusWheelSpinner for account {AccountNumber} with schedule {Cron}, database {DbPath}",
-        options.AccountNumber, cron, dbPath);
+    Log.Information("Starting OctopusWheelSpinner for account {AccountNumber} with spin schedule {Cron}, scratch schedule {ScratchCron}, database {DbPath}",
+        options.AccountNumber, cron, scratchCron, dbPath);
     Log.Information("ntfy notifications {NtfyState}", ntfy.Enabled ? $"enabled ({ntfy.Url}, topic {ntfy.Topic})" : "disabled");
 
     var builder = WebApplication.CreateBuilder(args);
@@ -64,6 +80,14 @@ try
             .WithIdentity("spin-trigger")
             // If the app was down at the scheduled time, run once on startup rather than skipping the month
             .WithCronSchedule(cron, x => x.WithMisfireInstruction(CronTriggerMisfireInstruction.FireAndProceed)));
+
+        var scratchJobKey = new JobKey("scratch");
+        q.AddJob<ScratchJob>(j => j.WithIdentity(scratchJobKey));
+        q.AddTrigger(t => t
+            .ForJob(scratchJobKey)
+            .WithIdentity("scratch-trigger")
+            // Same as above: catch up once on startup if the Monday run was missed
+            .WithCronSchedule(scratchCron, x => x.WithMisfireInstruction(CronTriggerMisfireInstruction.FireAndProceed)));
     });
     builder.Services.AddQuartzHostedService(q => q.WaitForJobsToComplete = true);
     builder.Services.AddSingleton<OctopusHealth>();

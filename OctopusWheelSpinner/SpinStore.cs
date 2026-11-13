@@ -6,6 +6,10 @@ public sealed record SpinAttempt(long Id, DateTimeOffset AttemptedAt, FuelType F
 
 public sealed record SpinSummary(int Attempts, int Successful, int Failed, long TotalPointsWon);
 
+public sealed record ScratchAttempt(long Id, DateTimeOffset AttemptedAt, Guid SessionReference, bool Success, string? Status, string? Prize, string? Error);
+
+public sealed record ScratchSummary(int Attempts, int Successful, int Failed, int Won);
+
 public sealed class SpinStore
 {
     private readonly string _connectionString;
@@ -28,7 +32,35 @@ public sealed class SpinStore
                 points_won     INTEGER NULL,
                 error          TEXT NULL
             );
+            CREATE TABLE IF NOT EXISTS scratch_attempts (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                attempted_at      TEXT NOT NULL,
+                account_number    TEXT NOT NULL,
+                session_reference TEXT NOT NULL,
+                success           INTEGER NOT NULL,
+                status            TEXT NULL,
+                prize             TEXT NULL,
+                error             TEXT NULL
+            );
             """;
+        cmd.ExecuteNonQuery();
+    }
+
+    public void RecordScratch(string account, Guid sessionReference, ScratchResult result)
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO scratch_attempts (attempted_at, account_number, session_reference, success, status, prize, error)
+            VALUES ($at, $account, $session, $success, $status, $prize, $error);
+            """;
+        cmd.Parameters.AddWithValue("$at", DateTimeOffset.UtcNow.ToString("o"));
+        cmd.Parameters.AddWithValue("$account", account);
+        cmd.Parameters.AddWithValue("$session", sessionReference.ToString());
+        cmd.Parameters.AddWithValue("$success", result.Success ? 1 : 0);
+        cmd.Parameters.AddWithValue("$status", (object?)result.Status ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$prize", (object?)result.Prize ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$error", (object?)result.Error ?? DBNull.Value);
         cmd.ExecuteNonQuery();
     }
 
@@ -92,6 +124,52 @@ public sealed class SpinStore
                 lr.GetInt32(3) == 1,
                 lr.IsDBNull(4) ? null : lr.GetInt32(4),
                 lr.IsDBNull(5) ? null : lr.GetString(5)));
+        return (summary, attempts);
+    }
+
+    public (ScratchSummary Summary, List<ScratchAttempt> Attempts) QueryScratches(int limit, bool? success)
+    {
+        var clause = success is not null ? "WHERE success = $success" : "";
+
+        using var conn = Open();
+
+        void Bind(SqliteCommand cmd)
+        {
+            if (success is not null) cmd.Parameters.AddWithValue("$success", success.Value ? 1 : 0);
+        }
+
+        using var summaryCmd = conn.CreateCommand();
+        summaryCmd.CommandText = $"""
+            SELECT COUNT(*), COALESCE(SUM(success), 0), COALESCE(SUM(success = 1 AND prize IS NOT NULL), 0)
+            FROM scratch_attempts {clause}
+            """;
+        Bind(summaryCmd);
+        using var sr = summaryCmd.ExecuteReader();
+        sr.Read();
+        var total = sr.GetInt32(0);
+        var ok = sr.GetInt32(1);
+        var summary = new ScratchSummary(total, ok, total - ok, sr.GetInt32(2));
+
+        using var listCmd = conn.CreateCommand();
+        listCmd.CommandText = $"""
+            SELECT id, attempted_at, session_reference, success, status, prize, error
+            FROM scratch_attempts {clause}
+            ORDER BY id DESC
+            LIMIT $limit
+            """;
+        Bind(listCmd);
+        listCmd.Parameters.AddWithValue("$limit", limit);
+        var attempts = new List<ScratchAttempt>();
+        using var lr = listCmd.ExecuteReader();
+        while (lr.Read())
+            attempts.Add(new ScratchAttempt(
+                lr.GetInt64(0),
+                DateTimeOffset.Parse(lr.GetString(1)),
+                Guid.Parse(lr.GetString(2)),
+                lr.GetInt32(3) == 1,
+                lr.IsDBNull(4) ? null : lr.GetString(4),
+                lr.IsDBNull(5) ? null : lr.GetString(5),
+                lr.IsDBNull(6) ? null : lr.GetString(6)));
         return (summary, attempts);
     }
 

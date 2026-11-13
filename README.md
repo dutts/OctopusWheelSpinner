@@ -1,11 +1,12 @@
 # Octopus Wheel Spinner
 
 A small .NET service that logs into your [Octopus Energy](https://octopus.energy) account on a schedule and spins the
-Octoplus **Wheel of Fortune** for every spin you are allowed, for both electricity and gas. Every attempt and its
-outcome is stored in a local SQLite database and can be read back as JSON.
+Octoplus **Wheel of Fortune** for every spin you are allowed, for both electricity and gas. Once a week it also
+scratches your Octoplus **scratch card**. Every attempt and its outcome is stored in a local SQLite database and can be
+read back as JSON.
 
 > **Unofficial.** This project is not affiliated with or endorsed by Octopus Energy. It uses Octopus's GraphQL API, and
-> the wheel of fortune calls are not part of the documented public API, so they may change or stop working without
+> the wheel of fortune and scratch card calls are not part of the documented public API, so they may change or stop working without
 > notice. Use it at your own risk and check that it is consistent with your Octopus terms.
 
 ## How it works
@@ -19,9 +20,19 @@ outcome is stored in a local SQLite database and can be read back as JSON.
 Spins are only granted about once a month, so the default schedule is 09:00 on the 1st of each month. Running more
 often is harmless: if no spins are available, nothing is spun.
 
+Scratch cards run on their own schedule (`SCRATCH_CRON`), by default 09:00 every Monday, when Octoplus opens the week's
+scratch card session:
+
+1. It asks Octopus for the active scratch card session. If none is running, or the card has already been scratched,
+   nothing happens.
+2. Otherwise it scratches the card and records the attempt (time, session, status, prize, error) in SQLite.
+
+It only scratches: a prize is **not** claimed automatically. If you win an offer, the notification tells you to claim it
+in the Octoplus tab of the Octopus app.
+
 ## Requirements
 
-- An Octopus Energy account with the Wheel of Fortune available
+- An Octopus Energy account with the Wheel of Fortune and Octoplus scratch cards available
 - Your **API key** and **account number** (e.g. `A-1234ABCD`). The API key is under *Developer settings* in your
   Octopus online dashboard.
 - [.NET 10 SDK](https://dotnet.microsoft.com/download) to build and run locally, **or** Docker
@@ -35,6 +46,9 @@ All configuration is through environment variables.
 | `OCTOPUS_API_KEY` | yes | | Your Octopus API key |
 | `OCTOPUS_ACCOUNT_NUMBER` | yes | | Your account number, e.g. `A-1234ABCD` |
 | `SPIN_CRON` | no | `0 0 9 1 * ?` | When to spin, as a Quartz cron expression (see below) |
+| `SCRATCH_CRON` | no | `0 0 9 ? * MON` | When to scratch the weekly scratch card, as a Quartz cron expression (see below) |
+| `OCTOPUS_API_URL` | no | `https://api.octopus.energy/v1/graphql/` | Override the Octopus token endpoint, for testing against a mock |
+| `OCTOPUS_BACKEND_URL` | no | `https://api.backend.octopus.energy/v1/graphql/` | Override the Octopus backend endpoint, for testing against a mock |
 | `DB_PATH` | no | `data/spins.db` | Where the SQLite database is written |
 | `HEALTH_PORT` | no | `8080` | Port for the HTTP endpoints |
 | `LOG_FORMAT` | no | text | Set to `json` for structured JSON logs, one event per line |
@@ -47,12 +61,14 @@ All configuration is through environment variables.
 
 If `NTFY_URL` and `NTFY_TOPIC` are set, a notification is sent after a run that spun the wheel (listing the points won
 per fuel), at high priority if any spin failed, and also if the run errors. Nothing is sent when no spins were
-available. A failure to deliver a notification is logged and never fails the run. Setting only one of the two required
+available. A scratch card run sends one notification: the prize won (with a reminder to claim offers in the Octopus app),
+"No prize this week" at low priority, or a high priority problem notice if the scratch failed. Nothing is sent when
+there is no card to scratch. A failure to deliver a notification is logged and never fails the run. Setting only one of the two required
 variables stops the app at startup.
 
 ### Schedule format
 
-`SPIN_CRON` uses the Quartz format, which has a leading **seconds** field and is not the usual five-field cron:
+`SPIN_CRON` and `SCRATCH_CRON` use the Quartz format, which has a leading **seconds** field and is not the usual five-field cron:
 
 ```
 sec min hour day-of-month month day-of-week [year]
@@ -64,10 +80,12 @@ You must put `?` in either day-of-month or day-of-week.
 | --- | --- |
 | `0 0 9 1 * ?` | 09:00 on the 1st of every month (default) |
 | `0 0 9 1-3 * ?` | 09:00 on the 1st, 2nd and 3rd of every month |
+| `0 0 9 ? * MON` | 09:00 every Monday (default for `SCRATCH_CRON`) |
 | `0 0 */6 * * ?` | Every 6 hours |
 | `0 * * * * ?` | Every minute (for testing only) |
 
-Times are in the machine's time zone. In Docker that is UTC unless you set `TZ`. An invalid expression stops the app at
+Times are in the machine's time zone. In Docker that is UTC unless you set `TZ`, which is still inside Monday in UK time
+at 09:00. An invalid expression stops the app at
 startup with an error. If the app was down at a scheduled time, it runs once when it next starts.
 
 ## Run locally
@@ -251,6 +269,42 @@ curl "localhost:8080/spins?fuel=gas&limit=10"
 }
 ```
 
+### `GET /scratches`
+
+Returns the recorded scratch card attempts, newest first, with a summary.
+
+| Query parameter | Description |
+| --- | --- |
+| `limit` | Maximum attempts returned, 1 to 1000 (default 100). The summary ignores this. |
+| `success` | `true` or `false` |
+
+An invalid parameter returns `400` with a problem details body, as for `/spins`. In the summary, `won` counts successful
+attempts that had a prize.
+
+```sh
+curl "localhost:8080/scratches?limit=10"
+```
+
+```json
+{
+  "summary": { "attempts": 1, "successful": 1, "failed": 0, "won": 1 },
+  "attempts": [
+    {
+      "id": 1,
+      "attemptedAt": "2026-11-16T09:00:01.123456+00:00",
+      "sessionReference": "0b6f3c1e-5d0a-4a58-9a4e-3f1c2d7e8a90",
+      "success": true,
+      "status": "PRIZE_NOT_YET_CLAIMED",
+      "prize": "50 stamps",
+      "error": null
+    }
+  ]
+}
+```
+
+`status` is Octopus's own value, for example `DID_NOT_WIN`, `PRIZE_NOT_YET_CLAIMED`, `PRIZE_CLAIMED`, `PRIZE_REJECTED` or
+`PRIZE_NOT_CLAIMED_IN_TIME`. `prize` is null when nothing was won.
+
 ### `GET /scalar`
 
 An interactive [Scalar](https://scalar.com) API reference for the endpoints above, where you can send requests from
@@ -262,7 +316,7 @@ which is generated from the endpoint definitions in `Api.cs`.
 
 ## Data
 
-Attempts are stored in the `spin_attempts` table:
+Spin attempts are stored in the `spin_attempts` table:
 
 | Column | Description |
 | --- | --- |
@@ -278,14 +332,45 @@ Attempts are stored in the `spin_attempts` table:
 sqlite3 data/spins.db "select * from spin_attempts order by id desc"
 ```
 
+Scratch card attempts are stored in the `scratch_attempts` table:
+
+| Column | Description |
+| --- | --- |
+| `id` | Auto-incrementing id |
+| `attempted_at` | UTC timestamp of the attempt |
+| `account_number` | Octopus account number |
+| `session_reference` | The Octopus scratch card session the attempt belongs to |
+| `success` | `1` if the scratch succeeded, otherwise `0` |
+| `status` | Octopus's status for the card, e.g. `DID_NOT_WIN` (null on failure) |
+| `prize` | Prize name or stamps won (null if nothing won, or on failure) |
+| `error` | Error message (null on success) |
+
 ## Project layout
 
 | File | Purpose |
 | --- | --- |
 | `Program.cs` | Configuration, logging (Serilog) and service wiring |
 | `SpinJob.cs` | The Quartz job that checks and spins for each fuel |
+| `ScratchJob.cs` | The Quartz job that scratches the weekly scratch card |
 | `Notifier.cs` | Optional ntfy notifications |
-| `OctopusClient.cs` | GraphQL client: authentication, spins allowed, spin, connectivity check |
+| `OctopusClient.cs` | GraphQL client: authentication, spins allowed, spin, scratch card query and scratch, connectivity check |
 | `SpinStore.cs` | SQLite storage and queries |
-| `Api.cs` | The `/health`, `/spins`, `/scalar` and `/openapi.json` endpoints (ASP.NET Core minimal APIs) |
+| `Api.cs` | The `/health`, `/spins`, `/scratches`, `/scalar` and `/openapi.json` endpoints (ASP.NET Core minimal APIs) |
 | `OctopusHealth.cs` | The cached background check of the Octopus API reported by `/health` |
+| `OctopusWheelSpinner.Tests/` | Integration tests (xUnit v3, Testcontainers, WireMock.Net), a sibling project at the repository root |
+
+## Tests
+
+`OctopusWheelSpinner.Tests` is a black-box integration suite using [Testcontainers for .NET](https://dotnet.testcontainers.org/).
+It builds the real Docker image from the `Dockerfile`, then runs each test against a fresh app container and a fresh
+[WireMock.Net](https://github.com/WireMock-Net/WireMock.Net) container standing in for Octopus and ntfy (via
+`OCTOPUS_API_URL`, `OCTOPUS_BACKEND_URL` and `NTFY_URL`). Docker must be running.
+
+```sh
+dotnet test
+```
+
+The first run builds the image, which takes a few minutes; later runs reuse the Docker layer cache.
+
+The same tests also run in GitHub Actions on pushes to `main`, `v*` tags and pull requests to `main`, and the image is
+only published if they pass.

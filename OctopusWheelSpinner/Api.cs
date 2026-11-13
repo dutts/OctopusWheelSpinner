@@ -10,6 +10,8 @@ public sealed record HealthResponse(string Status, Connectivity Octopus, string?
 
 public sealed record SpinsResponse(SpinSummary Summary, List<SpinAttempt> Attempts);
 
+public sealed record ScratchesResponse(ScratchSummary Summary, List<ScratchAttempt> Attempts);
+
 /// <summary>
 /// The HTTP endpoints. The OpenAPI document (/openapi.json) is generated from these definitions, so parameter
 /// attributes, summaries and return types are what the docs and the Scalar page (/scalar) show.
@@ -29,7 +31,7 @@ public static class Api
             o.AddDocumentTransformer((document, _, _) =>
             {
                 document.Info.Title = "Octopus Wheel Spinner";
-                document.Info.Description = "Health and recorded wheel of fortune spin attempts. The endpoints have no authentication.";
+                document.Info.Description = "Health, recorded wheel of fortune spin attempts and recorded scratch card attempts. The endpoints have no authentication.";
                 return Task.CompletedTask;
             });
             // fuel binds through FuelFilter, which the generator can only describe as a string
@@ -92,6 +94,21 @@ public static class Api
             .WithDescription(
                 "Returns the recorded spin attempts, newest first, with a summary. The summary applies the `fuel` and " +
                 "`success` filters but ignores `limit`.")
+            .ProducesValidationProblem();
+
+        app.MapGet("/scratches", (
+                [Description("Maximum attempts returned"), Range(1, 1000), DefaultValue(100)] int? limit,
+                [Description("Only successful (`true`) or failed (`false`) attempts")] bool? success,
+                SpinStore store) =>
+            {
+                var (summary, attempts) = store.QueryScratches(limit ?? 100, success);
+                return new ScratchesResponse(summary, attempts);
+            })
+            .WithTags("Scratch cards")
+            .WithSummary("Recorded scratch card attempts")
+            .WithDescription(
+                "Returns the recorded scratch card attempts, newest first, with a summary. `won` counts successful attempts " +
+                "that had a prize. The summary applies the `success` filter but ignores `limit`.")
             .ProducesValidationProblem();
 
         return app;
