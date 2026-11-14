@@ -91,10 +91,11 @@ jobs:
 
       # Ask the home-swarm Woodpecker to roll the service forward now rather
       # than waiting for its weekly update cron.
+      # Runs on manual re-runs too, so re-publishing an image also deploys it.
       - name: Roll out to swarm
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: |
-          curl -fsS -X POST \
+          curl -sS --fail-with-body -X POST \
             -H "Authorization: Bearer ${{ secrets.WOODPECKER_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d '{"branch":"main","variables":{"SERVICE":"octopuswheelspinner_octopuswheelspinner"}}' \
