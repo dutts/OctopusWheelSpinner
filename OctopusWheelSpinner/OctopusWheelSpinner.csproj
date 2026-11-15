@@ -15,6 +15,10 @@
     </ItemGroup>
 
     <ItemGroup>
+      <EmbeddedResource Include="status.html" LogicalName="status.html" />
+    </ItemGroup>
+
+    <ItemGroup>
       <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.12" />
       <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
       <PackageReference Include="Quartz.Extensions.Hosting" Version="4.3.0" />

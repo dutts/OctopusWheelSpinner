@@ -209,18 +209,25 @@ docker run -d --name octopus-wheel-spinner --env-file OctopusWheelSpinner/.env -
 The service listens on port `8080` (see `HEALTH_PORT`).
 
 The author's deployment is at <https://octopuswheelspinner.dutton.family>, behind a sign-in gateway; opening it shows
-the API reference.
+the status page.
+
+### `GET /`
+
+A lightweight status page (the embedded `status.html`: plain HTML, CSS and JavaScript, with no external requests). It
+shows the service version, whether the Octopus API is reachable, each job's schedule with its last and next run, and the
+recorded spins and scratch cards with summary figures and filters. It reads `/health`, `/schedule`, `/spins` and
+`/scratches` from the browser and refreshes every 30 seconds. A link in the header opens the API reference.
 
 ### `GET /health`
 
 Returns `200` whenever the service is running. The Docker image's `HEALTHCHECK` uses it (via `curl`), so an Octopus
 outage doesn't get the container restarted over and over.
 
-The response also says whether the Octopus API is reachable. That check sends an unauthenticated `{ __typename }`
+The response includes the running `version`, and says whether the Octopus API is reachable. That check sends an unauthenticated `{ __typename }`
 query to the Octopus endpoints, so it does not use your credentials or touch your account:
 
 ```json
-{ "status": "healthy", "octopus": "slow", "error": "api.octopus.energy: no response within 10s" }
+{ "status": "healthy", "version": "1.2.3", "octopus": "slow", "error": "api.octopus.energy: no response within 10s" }
 ```
 
 `octopus` is one of:
@@ -235,6 +242,22 @@ query to the Octopus endpoints, so it does not use your credentials or touch you
 If the endpoints differ, the worse result is reported, and `error` lists each endpoint that wasn't reachable. The check
 runs in the background and its result is cached for 30 seconds, so `/health` answers immediately and never waits on
 Octopus.
+
+### `GET /schedule`
+
+The cron expression, previous run and next run of each job (`spin` and `scratch`):
+
+```json
+{
+  "jobs": [
+    { "job": "spin", "cron": "0 0 9 1 * ?", "previousRun": null, "nextRun": "2026-12-01T09:00:00+00:00" },
+    { "job": "scratch", "cron": "0 0 9 ? * MON", "previousRun": null, "nextRun": "2026-11-16T09:00:00+00:00" }
+  ]
+}
+```
+
+`previousRun` only covers runs since the process started, because Quartz keeps its state in memory; it is `null` until a
+job next fires after a restart.
 
 ### `GET /spins`
 
@@ -308,7 +331,7 @@ curl "localhost:8080/scratches?limit=10"
 ### `GET /scalar`
 
 An interactive [Scalar](https://scalar.com) API reference for the endpoints above, where you can send requests from
-your browser: open <http://localhost:8080/>, which redirects to `/scalar/`. It is built from the OpenAPI document served at `GET /openapi.json`,
+your browser: open <http://localhost:8080/scalar/> (or follow the link on the status page at `/`). It is built from the OpenAPI document served at `GET /openapi.json`,
 which is generated from the endpoint definitions in `Api.cs`.
 
 > **Security:** the endpoints have no authentication. Do not expose the port to the internet. To limit it to your own
@@ -355,7 +378,8 @@ Scratch card attempts are stored in the `scratch_attempts` table:
 | `Notifier.cs` | Optional ntfy notifications |
 | `OctopusClient.cs` | GraphQL client: authentication, spins allowed, spin, scratch card query and scratch, connectivity check |
 | `SpinStore.cs` | SQLite storage and queries |
-| `Api.cs` | The `/health`, `/spins`, `/scratches`, `/scalar` and `/openapi.json` endpoints (ASP.NET Core minimal APIs) |
+| `Api.cs` | The `/`, `/health`, `/schedule`, `/spins`, `/scratches`, `/scalar` and `/openapi.json` endpoints (ASP.NET Core minimal APIs) |
+| `status.html` | The status page served at `/`, embedded in the assembly |
 | `OctopusHealth.cs` | The cached background check of the Octopus API reported by `/health` |
 | `OctopusWheelSpinner.Tests/` | Integration tests (xUnit v3, Testcontainers, WireMock.Net), a sibling project at the repository root |
 

@@ -13,6 +13,12 @@ public sealed record SpinSummaryDto(int Attempts, int Successful, int Failed, lo
 
 public sealed record SpinAttemptDto(long Id, string Fuel, bool Success, int? PointsWon, string? Error);
 
+public sealed record HealthDto(string Status, string Version, string Octopus, string? Error);
+
+public sealed record ScheduleDto(List<JobScheduleDto> Jobs);
+
+public sealed record JobScheduleDto(string Job, string Cron, DateTimeOffset? PreviousRun, DateTimeOffset? NextRun);
+
 public sealed record ProblemDto(int Status, string? Title, string? Detail);
 
 /// <summary>An entry from WireMock's request log.</summary>

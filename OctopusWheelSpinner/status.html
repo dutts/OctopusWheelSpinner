@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Octopus Wheel Spinner</title>
+<style>
+:root {
+  --bg: #f6f7f9; --surface: #fff; --text: #1b1f27; --muted: #667085; --border: #e1e4ea;
+  --accent: #6b3fd4; --ok: #137a3f; --ok-bg: #e3f5ea; --warn: #9a5b00; --warn-bg: #fdf0d5;
+  --bad: #b3261e; --bad-bg: #fbe4e2; --neutral-bg: #eceef2;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12141a; --surface: #1b1e26; --text: #e8eaef; --muted: #9aa1b0; --border: #2b303b;
+    --accent: #a98bf5; --ok: #5fd08a; --ok-bg: #153524; --warn: #f0b955; --warn-bg: #3a2c0e;
+    --bad: #f28b82; --bad-bg: #40191a; --neutral-bg: #2a2e38;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 960px; margin: 0 auto; padding: 16px; }
+a { color: var(--accent); }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 16px; }
+h1 { font-size: 1.4rem; margin: 0; }
+h2 { font-size: 1.05rem; margin: 0 0 12px; }
+.muted { color: var(--muted); }
+.spacer { flex: 1; }
+.updated { display: flex; align-items: center; gap: 8px; font-size: .85rem; }
+button, select { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; }
+button { cursor: pointer; }
+button:hover { border-color: var(--accent); }
+section { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+.head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 12px; }
+.head h2 { margin: 0; }
+.filters { display: flex; flex-wrap: wrap; gap: 8px; font-size: .85rem; }
+.filters label { display: flex; align-items: center; gap: 6px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-bottom: 12px; }
+.tile { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
+.tile b { display: block; font-size: 1.3rem; }
+.tile span { font-size: .8rem; color: var(--muted); }
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+#spins td:last-child, #scratches td:last-child { white-space: normal; min-width: 180px; }
+th { color: var(--muted); font-weight: 600; font-size: .8rem; }
+.badge { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: .8rem; font-weight: 600; background: var(--neutral-bg); color: var(--muted); }
+.badge.ok { background: var(--ok-bg); color: var(--ok); }
+.badge.warn { background: var(--warn-bg); color: var(--warn); }
+.badge.bad { background: var(--bad-bg); color: var(--bad); }
+.error { color: var(--bad); margin: 8px 0 0; }
+.empty { color: var(--muted); margin: 8px 0 0; }
+code { font: .85rem ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.status-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Octopus Wheel Spinner</h1>
+    <span class="muted" id="version"></span>
+    <a href="/scalar/">API reference</a>
+    <span class="spacer"></span>
+    <span class="updated"><span class="muted" id="updated">Loading…</span><button id="refresh" type="button">Refresh</button></span>
+  </header>
+
+  <section id="status">
+    <h2>Status</h2>
+    <div class="status-line" id="status-line"></div>
+    <div class="scroll"><table id="schedule" hidden>
+      <thead><tr><th>Job</th><th>Schedule</th><th>Last run</th><th>Next run</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <p class="error" id="status-error" hidden></p>
+  </section>
+
+  <section id="spins">
+    <div class="head">
+      <h2>Spins</h2>
+      <div class="filters">
+        <label>Fuel <select id="spin-fuel"><option value="">All</option><option value="electricity">Electricity</option><option value="gas">Gas</option></select></label>
+        <label>Result <select id="spin-success"><option value="">All</option><option value="true">Succeeded</option><option value="false">Failed</option></select></label>
+      </div>
+    </div>
+    <div class="tiles"></div>
+    <div class="scroll"><table hidden>
+      <thead><tr><th>Time</th><th>Fuel</th><th>Result</th><th>Points</th><th>Error</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <p class="empty" hidden>No spins recorded yet</p>
+    <p class="error" hidden></p>
+  </section>
+
+  <section id="scratches">
+    <div class="head">
+      <h2>Scratch cards</h2>
+      <div class="filters">
+        <label>Result <select id="scratch-success"><option value="">All</option><option value="true">Succeeded</option><option value="false">Failed</option></select></label>
+      </div>
+    </div>
+    <div class="tiles"></div>
+    <div class="scroll"><table hidden>
+      <thead><tr><th>Time</th><th>Result</th><th>Status</th><th>Prize</th><th>Error</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <p class="empty" hidden>No scratch cards recorded yet</p>
+    <p class="error" hidden></p>
+  </section>
+</main>
+
+<script>
+'use strict';
+const $ = (selector, root = document) => root.querySelector(selector);
+const rtf = new Intl.RelativeTimeFormat('en-GB', { numeric: 'auto' });
+const dtf = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+
+// Builds an element; every string goes in through textContent
+function el(tag, text, className) {
+  const e = document.createElement(tag);
+  if (text !== undefined && text !== null) e.textContent = text;
+  if (className) e.className = className;
+  return e;
+}
+
+function badge(text, kind) { return el('span', text, 'badge' + (kind ? ' ' + kind : '')); }
+
+function humanise(value) {
+  if (!value) return '';
+  const words = String(value).toLowerCase().replace(/_/g, ' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+function formatTime(iso) { return iso ? dtf.format(new Date(iso)) : 'Never'; }
+
+function relative(iso) {
+  if (!iso) return '';
+  const seconds = (new Date(iso) - Date.now()) / 1000;
+  const units = [['day', 86400], ['hour', 3600], ['minute', 60]];
+  for (const [unit, size] of units) {
+    if (Math.abs(seconds) >= size) return rtf.format(Math.round(seconds / size), unit);
+  }
+  return rtf.format(Math.round(seconds), 'second');
+}
+
+function timeCell(iso) {
+  return iso ? formatTime(iso) + ' (' + relative(iso) + ')' : 'Never';
+}
+
+async function getJson(path) {
+  const response = await fetch(path, { headers: { Accept: 'application/json' } });
+  if (!response.ok) {
+    let detail = '';
+    try { detail = (await response.json()).detail || ''; } catch { /* not JSON */ }
+    throw new Error('HTTP ' + response.status + (detail ? ': ' + detail : ''));
+  }
+  return response.json();
+}
+
+function showError(section, error) {
+  const p = $('.error', section);
+  p.textContent = error ? 'Could not load this section: ' + error.message : '';
+  p.hidden = !error;
+}
+
+function connectivityBadge(value) {
+  switch (String(value).toLowerCase()) {
+    case 'reachable': return badge('Reachable', 'ok');
+    case 'slow': return badge('Slow', 'warn');
+    case 'unreachable': return badge('Unreachable', 'bad');
+    default: return badge('Unknown');
+  }
+}
+
+async function loadStatus() {
+  const line = $('#status-line');
+  const table = $('#schedule');
+  const errors = [];
+  try {
+    const health = await getJson('/health');
+    $('#version').textContent = health.version ? 'v' + health.version : '';
+    const status = String(health.status).toLowerCase();
+    line.replaceChildren(
+      el('span', 'Service', 'muted'), badge(humanise(health.status), status === 'healthy' ? 'ok' : 'bad'),
+      el('span', 'Octopus API', 'muted'), connectivityBadge(health.octopus));
+    if (health.error) line.append(el('span', health.error, 'muted'));
+  } catch (e) {
+    line.replaceChildren(el('span', 'Service', 'muted'), badge('Unreachable', 'bad'));
+    errors.push('health: ' + e.message);
+  }
+  try {
+    const schedule = await getJson('/schedule');
+    const body = $('tbody', table);
+    body.replaceChildren(...schedule.jobs.map(job => {
+      const row = el('tr');
+      row.append(
+        el('td', job.job.toLowerCase() === 'spin' ? 'Spin' : job.job.toLowerCase() === 'scratch' ? 'Scratch card' : humanise(job.job)),
+        el('td'), el('td', timeCell(job.previousRun)), el('td', timeCell(job.nextRun)));
+      row.children[1].append(el('code', job.cron));
+      return row;
+    }));
+    table.hidden = schedule.jobs.length === 0;
+  } catch (e) {
+    table.hidden = true;
+    errors.push('schedule: ' + e.message);
+  }
+  const p = $('#status-error');
+  p.textContent = errors.length ? 'Could not load ' + errors.join('; ') : '';
+  p.hidden = errors.length === 0;
+}
+
+function renderTiles(section, tiles) {
+  $('.tiles', section).replaceChildren(...tiles.map(([label, value]) => {
+    const tile = el('div', null, 'tile');
+    tile.append(el('b', Number(value).toLocaleString('en-GB')), el('span', label));
+    return tile;
+  }));
+}
+
+function resultBadge(success) { return success ? badge('Succeeded', 'ok') : badge('Failed', 'bad'); }
+
+function renderRows(section, rows) {
+  const table = $('table', section);
+  $('tbody', table).replaceChildren(...rows);
+  table.hidden = rows.length === 0;
+  $('.empty', section).hidden = rows.length !== 0;
+}
+
+function row(cells) {
+  const tr = el('tr');
+  for (const cell of cells) {
+    const td = el('td');
+    if (cell instanceof Node) td.append(cell);
+    else td.textContent = cell ?? '';
+    tr.append(td);
+  }
+  return tr;
+}
+
+function errorCell(message) { return el('span', message ?? ''); }
+
+async function loadSpins() {
+  const section = $('#spins');
+  const params = new URLSearchParams({ limit: '100' });
+  if ($('#spin-fuel').value) params.set('fuel', $('#spin-fuel').value);
+  if ($('#spin-success').value) params.set('success', $('#spin-success').value);
+  try {
+    const data = await getJson('/spins?' + params);
+    const s = data.summary;
+    renderTiles(section, [['Attempts', s.attempts], ['Successful', s.successful], ['Failed', s.failed], ['Points won', s.totalPointsWon]]);
+    renderRows(section, data.attempts.map(a => row([
+      formatTime(a.attemptedAt), humanise(a.fuel), resultBadge(a.success), a.pointsWon, errorCell(a.error)])));
+    showError(section, null);
+  } catch (e) {
+    showError(section, e);
+  }
+}
+
+async function loadScratches() {
+  const section = $('#scratches');
+  const params = new URLSearchParams({ limit: '100' });
+  if ($('#scratch-success').value) params.set('success', $('#scratch-success').value);
+  try {
+    const data = await getJson('/scratches?' + params);
+    const s = data.summary;
+    renderTiles(section, [['Attempts', s.attempts], ['Successful', s.successful], ['Failed', s.failed], ['Won', s.won]]);
+    renderRows(section, data.attempts.map(a => row([
+      formatTime(a.attemptedAt), resultBadge(a.success), humanise(a.status), a.prize, errorCell(a.error)])));
+    showError(section, null);
+  } catch (e) {
+    showError(section, e);
+  }
+}
+
+async function refresh() {
+  await Promise.all([loadStatus(), loadSpins(), loadScratches()]);
+  $('#updated').textContent = 'Last updated ' + new Date().toLocaleTimeString('en-GB');
+}
+
+$('#refresh').addEventListener('click', refresh);
+$('#spin-fuel').addEventListener('change', loadSpins);
+$('#spin-success').addEventListener('change', loadSpins);
+$('#scratch-success').addEventListener('change', loadScratches);
+refresh();
+setInterval(refresh, 30000);
+</script>
+</body>
+</html>

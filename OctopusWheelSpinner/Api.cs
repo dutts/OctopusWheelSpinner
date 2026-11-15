@@ -1,12 +1,25 @@
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using System.Reflection;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using Quartz;
 using Scalar.AspNetCore;
 
 namespace OctopusWheelSpinner;
 
-public sealed record HealthResponse(string Status, Connectivity Octopus, string? Error);
+public sealed record HealthResponse(string Status, string Version, Connectivity Octopus, string? Error);
+
+public sealed record JobSchedule(string Job, string Cron, DateTimeOffset? PreviousRun, DateTimeOffset? NextRun);
+
+public sealed record ScheduleResponse(List<JobSchedule> Jobs);
+
+/// <summary>The Quartz trigger identities, shared by the scheduler setup in Program.cs and the /schedule endpoint.</summary>
+public static class TriggerNames
+{
+    public const string Spin = "spin-trigger";
+    public const string Scratch = "scratch-trigger";
+}
 
 public sealed record SpinsResponse(SpinSummary Summary, List<SpinAttempt> Attempts);
 
@@ -18,6 +31,19 @@ public sealed record ScratchesResponse(ScratchSummary Summary, List<ScratchAttem
 /// </summary>
 public static class Api
 {
+    // The informational version, minus any "+commit" suffix the SDK appends
+    private static readonly string Version =
+        (Assembly.GetEntryAssembly()?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown")
+        .Split('+')[0];
+
+    private static readonly Lazy<string> StatusPage = new(() =>
+    {
+        using var stream = typeof(Api).Assembly.GetManifestResourceStream("status.html")
+                           ?? throw new InvalidOperationException("The status.html resource is missing");
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    });
+
     public static IServiceCollection AddApi(this IServiceCollection services)
     {
         services.ConfigureHttpJsonOptions(o =>
@@ -63,22 +89,40 @@ public static class Api
 
         app.MapOpenApi("/openapi.json");
         app.MapScalarApiReference(o => o.WithOpenApiRoutePattern("/openapi.json"));
-        // Redirect rather than map Scalar at "/": its /{documentName} route would then answer every unknown path with 200
-        app.MapGet("/", () => Results.Redirect("/scalar/")).ExcludeFromDescription();
+        // Scalar is not mapped at "/": its /{documentName} route would then answer every unknown path with 200
+        app.MapGet("/", () => Results.Content(StatusPage.Value, "text/html; charset=utf-8")).ExcludeFromDescription();
 
         // Always 200 while the service runs, so an Octopus outage doesn't get the container restarted
         app.MapGet("/health", (OctopusHealth octopus) =>
             {
                 var check = octopus.Current();
-                return new HealthResponse("healthy", check?.Status ?? Connectivity.Unknown, check?.Error);
+                return new HealthResponse("healthy", Version, check?.Status ?? Connectivity.Unknown, check?.Error);
             })
             .WithTags("Health")
             .WithSummary("Service health")
             .WithDescription(
-                "Returns 200 whenever the service is running. `octopus` reports whether the Octopus API is reachable, from a " +
+                "Returns 200 whenever the service is running. `version` is the running build's version. `octopus` reports whether the Octopus API is reachable, from a " +
                 "background check cached for 30 seconds: `slow` means a connection was made but no response came within 10 " +
                 "seconds, `unreachable` means no connection within 5 seconds, a DNS or TLS failure, or an HTTP error, and " +
                 "`unknown` means the first check hasn't finished. `error` lists each endpoint that wasn't reachable.");
+
+        app.MapGet("/schedule", async (ISchedulerFactory schedulerFactory, CancellationToken ct) =>
+            {
+                var scheduler = await schedulerFactory.GetScheduler(ct);
+                var jobs = new List<JobSchedule>();
+                foreach (var (job, name) in new[] { ("spin", TriggerNames.Spin), ("scratch", TriggerNames.Scratch) })
+                {
+                    if (await scheduler.GetTrigger(new TriggerKey(name), ct) is ICronTrigger trigger)
+                        jobs.Add(new JobSchedule(job, trigger.CronExpressionString ?? "", trigger.PreviousFireTimeUtc, trigger.NextFireTimeUtc));
+                }
+                return new ScheduleResponse(jobs);
+            })
+            .WithTags("Schedule")
+            .WithSummary("Job schedules")
+            .WithDescription(
+                "Returns the cron expression, previous run and next run of the `spin` and `scratch` jobs. `previousRun` only " +
+                "covers runs since this process started, because Quartz keeps its state in memory, so it is null after a " +
+                "restart until the job next fires.");
 
         app.MapGet("/spins", (
                 [Description("Maximum attempts returned"), Range(1, 1000), DefaultValue(100)] int? limit,

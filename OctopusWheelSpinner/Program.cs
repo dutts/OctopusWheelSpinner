@@ -77,7 +77,7 @@ try
         q.AddJob<SpinJob>(j => j.WithIdentity(jobKey));
         q.AddTrigger(t => t
             .ForJob(jobKey)
-            .WithIdentity("spin-trigger")
+            .WithIdentity(TriggerNames.Spin)
             // If the app was down at the scheduled time, run once on startup rather than skipping the month
             .WithCronSchedule(cron, x => x.WithMisfireInstruction(CronTriggerMisfireInstruction.FireAndProceed)));
 
@@ -85,7 +85,7 @@ try
         q.AddJob<ScratchJob>(j => j.WithIdentity(scratchJobKey));
         q.AddTrigger(t => t
             .ForJob(scratchJobKey)
-            .WithIdentity("scratch-trigger")
+            .WithIdentity(TriggerNames.Scratch)
             // Same as above: catch up once on startup if the Monday run was missed
             .WithCronSchedule(scratchCron, x => x.WithMisfireInstruction(CronTriggerMisfireInstruction.FireAndProceed)));
     });
