@@ -25,6 +25,10 @@ RUN dotnet publish "./OctopusWheelSpinner.csproj" -c $BUILD_CONFIGURATION -o /ap
 
 FROM base AS final
 WORKDIR /app
+# Keep memory low for a mostly idle service: cap the GC's gen0 budget at 4 MB (otherwise it scales with the CPU
+# cache and the heap swings between ~50 and ~85 MiB) and skip Tiered PGO's profiling overhead
+ENV DOTNET_GCgen0size=0x400000 \
+    DOTNET_TieredPGO=0
 COPY --from=publish /app/publish .
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \

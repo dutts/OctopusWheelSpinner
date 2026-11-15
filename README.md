@@ -175,6 +175,9 @@ Notes:
   sure that folder is writable by it.
 - If you fork this repository, the image is published under your own account and name, and GHCR packages are private by
   default. Make the package public in its settings if you want others to pull it without logging in.
+- To keep memory low, the image sets `DOTNET_GCgen0size=0x400000` and `DOTNET_TieredPGO=0`, and the app uses invariant
+  globalisation. Together these keep it at roughly 50 MiB after activity, against 60-85 MiB with the .NET defaults.
+  Override the environment variables with `-e` or `environment:` if you need to.
 
 ## Build and run from source with Docker Compose
 

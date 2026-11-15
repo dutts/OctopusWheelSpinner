@@ -83,6 +83,8 @@ every second, or to a never-firing date, so nothing waits on real time. App logs
   `v*` tag; push a tag to change major/minor) and are passed into the
   Dockerfile as `VERSION`/`INFORMATIONAL_VERSION` build args.
 - The container runs as non-root (`$APP_UID`); `DB_PATH` is set to `/data/spins.db` with `/data` mounted as a volume.
+  The image also sets `DOTNET_GCgen0size=0x400000` and `DOTNET_TieredPGO=0`, and the project enables
+  `InvariantGlobalization`, to keep memory low (~50 MiB).
 
 ## Deployment
 
